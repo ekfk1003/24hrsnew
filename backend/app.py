@@ -6,14 +6,25 @@ import jwt
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, Boolean, ForeignKey, DateTime, select, func, JSON
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, Boolean, ForeignKey, DateTime, select, func, JSON, text as sql_text
 from sqlalchemy.exc import IntegrityError
 
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///./24hrsprinting.db")
 if DB_URL.startswith("postgres://"): DB_URL = "postgresql+psycopg://" + DB_URL[11:]
 elif DB_URL.startswith("postgresql://"): DB_URL = "postgresql+psycopg://" + DB_URL[13:]
-engine = create_engine(DB_URL, pool_pre_ping=True, connect_args={"check_same_thread":False} if DB_URL.startswith("sqlite") else {})
-meta = MetaData()
+# Supabase Postgres: keep customer data in a private schema, not the public Data API schema.
+# Never expose DATABASE_URL or admin secrets in the browser.
+IS_SQLITE = DB_URL.startswith("sqlite")
+DB_SCHEMA = None if IS_SQLITE else "app_private"
+engine = create_engine(
+    DB_URL, pool_pre_ping=True, pool_size=2, max_overflow=0, pool_recycle=300,
+    connect_args={"check_same_thread": False} if IS_SQLITE else {"sslmode": "require"}
+)
+if DB_SCHEMA:
+    with engine.begin() as conn:
+        conn.execute(sql_text("CREATE SCHEMA IF NOT EXISTS app_private"))
+        conn.execute(sql_text("REVOKE ALL ON SCHEMA app_private FROM PUBLIC"))
+meta = MetaData(schema=DB_SCHEMA)
 products = Table("products",meta,Column("id",String(60),primary_key=True),Column("name",String(160),nullable=False),Column("category",String(80),nullable=False),Column("minimum",Integer,nullable=False),Column("unit_cents",Integer,nullable=False),Column("active",Boolean,default=True))
 contacts = Table("contacts",meta,Column("id",Integer,primary_key=True,autoincrement=True),Column("email",String(254),unique=True,nullable=False),Column("name",String(100),nullable=False),Column("company",String(140)),Column("phone",String(40)))
 quotes = Table("quotes",meta,Column("id",String(42),primary_key=True),Column("contact_id",ForeignKey("contacts.id")),Column("product_id",ForeignKey("products.id")),Column("quantity",Integer),Column("notes",Text),Column("delivery_zip",String(15)),Column("event_date",String(20)),Column("status",String(30),default="new"),Column("created_at",DateTime,default=datetime.utcnow))
