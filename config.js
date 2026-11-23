@@ -1,1 +1,2 @@
-The requested file reference is not currently visible. Use files.search or files.list to rediscover the file, then retry with a returned ref_id or file_id.
+/* Public API origin only. Do not place passwords or API keys here. */
+window.HP_API_BASE_URL = "";
