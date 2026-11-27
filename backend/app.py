@@ -17,15 +17,24 @@ elif DB_URL.startswith("postgresql://"): DB_URL = "postgresql+psycopg://" + DB_U
 # Supabase Postgres: keep customer data in a private schema, not the public Data API schema.
 # Never expose DATABASE_URL or admin secrets in the browser.
 IS_SQLITE = DB_URL.startswith("sqlite")
-DB_SCHEMA = None if IS_SQLITE else "app_private"
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+# Staging must explicitly choose its own private schema, never the live app_private schema.
+# This schema setting alone is not permission isolation: staging also needs a restricted DB role.
+requested_schema = os.getenv("DB_SCHEMA", "").strip()
+if APP_ENV == "staging":
+    if IS_SQLITE or requested_schema != "app_staging":
+        raise RuntimeError("Staging requires PostgreSQL and DB_SCHEMA=app_staging")
+elif requested_schema and requested_schema != "app_private":
+    raise RuntimeError("Non-staging services must use DB_SCHEMA=app_private")
+DB_SCHEMA = None if IS_SQLITE else ("app_staging" if APP_ENV == "staging" else "app_private")
 engine = create_engine(
     DB_URL, pool_pre_ping=True, pool_size=2, max_overflow=0, pool_recycle=300,
     connect_args={"check_same_thread": False} if IS_SQLITE else {"sslmode": "require"}
 )
 if DB_SCHEMA:
     with engine.begin() as conn:
-        conn.execute(sql_text("CREATE SCHEMA IF NOT EXISTS app_private"))
-        conn.execute(sql_text("REVOKE ALL ON SCHEMA app_private FROM PUBLIC"))
+        conn.execute(sql_text(f"CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA}"))
+        conn.execute(sql_text(f"REVOKE ALL ON SCHEMA {DB_SCHEMA} FROM PUBLIC"))
 meta = MetaData(schema=DB_SCHEMA)
 products = Table("products",meta,Column("id",String(60),primary_key=True),Column("name",String(160),nullable=False),Column("category",String(80),nullable=False),Column("minimum",Integer,nullable=False),Column("unit_cents",Integer,nullable=False),Column("active",Boolean,default=True))
 contacts = Table("contacts",meta,Column("id",Integer,primary_key=True,autoincrement=True),Column("email",String(254),unique=True,nullable=False),Column("name",String(100),nullable=False),Column("company",String(140)),Column("phone",String(40)))
