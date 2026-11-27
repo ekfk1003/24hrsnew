@@ -83,3 +83,47 @@ def test_saas_registry_and_review_workflows():
     assert review.status_code==200 and review.json()["published"] is False
     list_result=client.get("/api/v1/admin/content-drafts",headers=headers)
     assert any(d["reference"]==ref and d["status"]=="approved" for d in list_result.json()["drafts"])
+
+def test_store_controls_media_visibility_and_feature_flags():
+    login=client.post("/api/v1/admin/login",json={"email":"admin@example.com","password":"unique-password-test-only"})
+    assert login.status_code==200,login.text
+    h={"Authorization":"Bearer "+login.json()["access_token"]}
+    assert client.get("/api/v1/admin/catalog").status_code==401
+    cat=client.get("/api/v1/admin/catalog",headers=h)
+    assert cat.status_code==200,cat.text
+    assert any(p["id"]=="lanyard" for p in cat.json()["products"])
+    flags=client.get("/api/v1/admin/features",headers=h)
+    assert flags.status_code==200 and len(flags.json()["features"])>=10
+    product=client.post("/api/v1/admin/products",headers=h,json={
+        "id":"internal-test-hats","name":"Internal Test Hats","category":"Apparel",
+        "minimum":40,"unit_cents":220,"description":"Do not fulfill","active":False})
+    assert product.status_code==201,product.text
+    assert not any(p["id"]=="internal-test-hats" for p in client.get("/api/v1/products").json()["products"])
+    assert client.post("/api/v1/quotes",json={"name":"Synthetic Buyer","email":"test@example.com","product_id":"internal-test-hats","quantity":40}).status_code==422
+    enable=client.patch("/api/v1/admin/products/internal-test-hats/visibility",headers=h,json={"active":True})
+    assert enable.status_code==200,enable.text
+    assert any(p["id"]=="internal-test-hats" for p in client.get("/api/v1/products").json()["products"])
+    display=client.patch("/api/v1/admin/products/internal-test-hats/display",headers=h,json={
+        "description":"Brandable caps","featured":False,"sort_order":5})
+    assert display.status_code==200,display.text
+    assert next(p for p in client.get("/api/v1/products").json()["products"] if p["id"]=="internal-test-hats")["featured"] is False
+    image=client.post("/api/v1/admin/products/internal-test-hats/images",headers=h,json={
+        "url":"https://example.org/hats.jpg","alt":"Sample image of hats"})
+    assert image.status_code==201,image.text
+    photo_id=image.json()["id"]
+    record=next(p for p in client.get("/api/v1/products").json()["products"] if p["id"]=="internal-test-hats")
+    assert record["photo"]=="https://example.org/hats.jpg"
+    assert client.patch("/api/v1/admin/products/internal-test-hats/images/"+str(photo_id)+"/primary",headers=h).status_code==200
+    removed=client.delete("/api/v1/admin/products/internal-test-hats/images/"+str(photo_id),headers=h)
+    assert removed.status_code==200
+    assert not next(p for p in client.get("/api/v1/products").json()["products"] if p["id"]=="internal-test-hats")["photo"]
+    assert client.patch("/api/v1/admin/features/unknown",headers=h,json={"enabled":False}).status_code==404
+    off=client.patch("/api/v1/admin/features/quotes_enabled",headers=h,json={"enabled":False})
+    assert off.status_code==200,off.text
+    quote=client.post("/api/v1/quotes",json={
+        "name":"Synthetic Buyer","email":"test@example.com","product_id":"internal-test-hats","quantity":40})
+    assert quote.status_code==503
+    client.patch("/api/v1/admin/features/quotes_enabled",headers=h,json={"enabled":True})
+    hidden=client.patch("/api/v1/admin/products/internal-test-hats/visibility",headers=h,json={"active":False})
+    assert hidden.status_code==200
+    assert not any(p["id"]=="internal-test-hats" for p in client.get("/api/v1/products").json()["products"])
