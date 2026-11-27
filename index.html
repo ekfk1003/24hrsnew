@@ -111,6 +111,29 @@ catch(err){document.getElementById('quoteResult').innerHTML=`<div class="api-fee
 finally{if(button)button.disabled=false;}}
 function actions(e){let el=e.target.closest('[data-go],[data-product],[data-category],[data-filter],[data-remove],[data-admintab]');if(!el)return;if(el.dataset.go){navigate(el.dataset.go);return}if(el.dataset.product){navigate('product/'+el.dataset.product);return}if(el.dataset.category){activeFilter=el.dataset.category;navigate('catalog');return}if(el.dataset.filter){activeFilter=el.dataset.filter;renderCatalog();return}if(el.dataset.remove){cart=cart.filter(x=>x.key!==el.dataset.remove);save('hp_cart',cart);refreshCart();renderCart();toast('Item removed from sample cart');return}if(el.dataset.admintab){activeAdmin=el.dataset.admintab;renderAdmin()}}
 document.addEventListener('click',actions);document.getElementById('search').addEventListener('input',renderCatalog);document.getElementById('checkoutForm').addEventListener('submit',checkout);document.getElementById('quoteForm').addEventListener('submit',quote);document.getElementById('menuBtn').addEventListener('click',()=>{let n=document.getElementById('nav');n.classList.toggle('open');document.getElementById('menuBtn').setAttribute('aria-expanded',n.classList.contains('open'))});document.addEventListener('click',e=>{if(e.target.id==='clearOrders'){if(confirm('Clear sample order history stored in this browser?')){orders=[];save('hp_orders',orders);renderOrders();toast('Local sample history cleared')}}if(e.target.matches('[data-color]')){selectedColor=e.target.dataset.color;document.querySelectorAll('.colorchip').forEach(x=>x.classList.toggle('selected',x.dataset.color===selectedColor))}});
-renderHome();refreshCart();route();
+async function syncLiveCatalog(){
+if(!API_BASE)return;
+try{
+  const r=await fetch(API_BASE+'/api/v1/products',{cache:'no-store'});
+  if(!r.ok)throw Error('HTTP '+r.status);
+  const data=await r.json();
+  for(const remote of (data.products||[])){
+    const local=byId(remote.id);if(!local)continue;
+    local.name=String(remote.name||local.name);
+    local.minimum=Number(remote.minimum)||local.minimum;
+    const dollar=Number(remote.estimate_unit_usd);if(Number.isFinite(dollar)&&dollar>0)local.base=dollar;
+  }
+  renderHome();
+  const h=location.hash.replace('#','');
+  if(h==='catalog')renderCatalog();
+  if(h.startsWith('product/'))renderProduct();
+  const productsNote=document.getElementById('liveCatalogNotice');
+  if(productsNote)productsNote.textContent='Connected to live catalog · illustrative prices';
+}catch(err){
+  const note=document.getElementById('liveCatalogNotice');
+  if(note)note.textContent='Live product updates unavailable; displaying saved preview catalog';
+}
+}
+renderHome();refreshCart();route();syncLiveCatalog();
 })();
 </script></body></html>
