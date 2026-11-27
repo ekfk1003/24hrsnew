@@ -127,3 +127,64 @@ def test_store_controls_media_visibility_and_feature_flags():
     hidden=client.patch("/api/v1/admin/products/internal-test-hats/visibility",headers=h,json={"active":False})
     assert hidden.status_code==200
     assert not any(p["id"]=="internal-test-hats" for p in client.get("/api/v1/products").json()["products"])
+
+def test_design_studio_draft_approval_and_rollback():
+    from fastapi.testclient import TestClient
+    auth=client.post("/api/v1/admin/login",json={"email":"admin@example.com","password":"unique-password-test-only"})
+    assert auth.status_code==200,auth.text
+    headers={"Authorization":"Bearer "+auth.json()["access_token"]}
+    before=client.get("/api/v1/site-content")
+    assert before.status_code==200
+    old=before.json()["pages"]["home"]
+    assert client.get("/api/v1/admin/design/status").status_code==401
+    status=client.get("/api/v1/admin/design/status",headers=headers)
+    assert status.status_code==200
+    assert status.json()["requires_approval"] is True
+    assert "home" in status.json()["pages"]
+    first=client.post("/api/v1/admin/design/manual-draft",headers=headers,json={
+        "page":"home","changes":{"hero_title":"A better new test headline.","hero_layout":"centered"},
+        "note":"Test only"})
+    assert first.status_code==201,first.text
+    ref=first.json()["reference"]
+    assert first.json()["published"] is False
+    unchanged=client.get("/api/v1/site-content").json()["pages"]["home"]
+    assert unchanged==old
+    drafts=client.get("/api/v1/admin/design/drafts",headers=headers)
+    assert drafts.status_code==200
+    assert any(x["reference"]==ref for x in drafts.json()["drafts"])
+    published=client.post("/api/v1/admin/design/drafts/"+ref+"/publish",headers=headers)
+    assert published.status_code==200,published.text
+    changed=client.get("/api/v1/site-content").json()["pages"]["home"]
+    assert changed["config"]["hero_title"]=="A better new test headline."
+    assert changed["config"]["hero_layout"]=="centered"
+    assert changed["version"]==old["version"]+1
+    assert client.post("/api/v1/admin/design/drafts/"+ref+"/publish",headers=headers).status_code==409
+    invalid=client.post("/api/v1/admin/design/manual-draft",headers=headers,json={
+        "page":"home","changes":{"hero_title":"<script>alert(1)</script>"}})
+    # Text is escaped in the UI, but arbitrary markup must never be processed as code.
+    assert invalid.status_code in (201,422)
+    forbidden=client.post("/api/v1/admin/design/manual-draft",headers=headers,json={
+        "page":"home","changes":{"api_key":"test"}})
+    assert forbidden.status_code==422
+    history=client.get("/api/v1/admin/design/history/home",headers=headers)
+    assert history.status_code==200
+    assert any(h["version"]==old["version"] for h in history.json()["versions"])
+    restored=client.post("/api/v1/admin/design/rollback/home/"+str(old["version"]),headers=headers)
+    assert restored.status_code==200,restored.text
+    current=client.get("/api/v1/site-content").json()["pages"]["home"]
+    assert current["config"]==old["config"]
+    assert current["version"]==old["version"]+2
+
+def test_design_studio_conflict_and_theme_validation():
+    auth=client.post("/api/v1/admin/login",json={"email":"admin@example.com","password":"unique-password-test-only"})
+    h={"Authorization":"Bearer "+auth.json()["access_token"]}
+    invalid=client.post("/api/v1/admin/design/manual-draft",headers=h,json={
+        "page":"global","changes":{"primary_color":"url(javascript:evil())"}})
+    assert invalid.status_code==422
+    one=client.post("/api/v1/admin/design/manual-draft",headers=h,json={
+        "page":"cart","changes":{"title":"First draft is old"}})
+    two=client.post("/api/v1/admin/design/manual-draft",headers=h,json={
+        "page":"cart","changes":{"title":"New cart name"}})
+    assert one.status_code==201 and two.status_code==201
+    assert client.post("/api/v1/admin/design/drafts/"+two.json()["reference"]+"/publish",headers=h).status_code==200
+    assert client.post("/api/v1/admin/design/drafts/"+one.json()["reference"]+"/publish",headers=h).status_code==409
