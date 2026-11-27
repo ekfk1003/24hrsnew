@@ -86,6 +86,76 @@ INTEGRATION_REGISTRY = [
     ("asi","suppliers","ASI/ESP","limited","Eligible account and partner integration approval","https://developers.asicentral.com/EspUpdates"),
 ]
 
+
+# Database-backed website controls; external integrations and customer artwork remain separate.
+product_display = Table("product_display",meta,
+    Column("product_id",String(60),ForeignKey("products.id"),primary_key=True),
+    Column("description",Text,nullable=False,default=""),
+    Column("featured",Boolean,nullable=False,default=True),
+    Column("sort_order",Integer,nullable=False,default=100))
+product_images = Table("product_images",meta,
+    Column("id",Integer,primary_key=True,autoincrement=True),
+    Column("product_id",String(60),ForeignKey("products.id"),nullable=False),
+    Column("url",String(2048),nullable=False),
+    Column("alt",String(240),nullable=False,default=""),
+    Column("source_url",String(2048),nullable=False,default=""),
+    Column("storage_key",String(255),nullable=False,default=""),
+    Column("is_primary",Boolean,nullable=False,default=False),
+    Column("active",Boolean,nullable=False,default=True),
+    Column("sort_order",Integer,nullable=False,default=100))
+site_flags = Table("site_flags",meta,
+    Column("key",String(80),primary_key=True),
+    Column("enabled",Boolean,nullable=False,default=True))
+FEATURE_DEFINITIONS = [
+    ("storefront_enabled","Entire storefront","Temporarily hides the product catalog and quote/order entry points"),
+    ("catalog_enabled","Product catalog","Shows browse products and product-detail pages"),
+    ("show_hero","Homepage hero","Shows the homepage introduction and hero image"),
+    ("show_categories","Shop by category","Shows category tiles on the homepage"),
+    ("show_featured","Featured products","Shows popular picks on the homepage"),
+    ("show_search","Catalog search","Shows catalog keyword search"),
+    ("customizer_enabled","Product customization","Allows product configuration and adding items to the proof-request cart"),
+    ("cart_enabled","Cart and checkout preview","Enables cart and proof-request checkout steps"),
+    ("quotes_enabled","Free proof quotation requests","Allows new quote requests through the public API"),
+    ("proof_requests_enabled","Proof-request submissions","Allows new non-paid proof orders through the public API"),
+    ("show_process","How it works","Shows homepage process explanation"),
+]
+FEATURE_DEFAULTS={x[0]:True for x in FEATURE_DEFINITIONS}
+def active_features(con):
+    found=con.execute(select(site_flags.c.key,site_flags.c.enabled)).all()
+    return {**FEATURE_DEFAULTS,**{key:bool(enabled) for key,enabled in found}}
+
+def public_product_records(con, include_hidden=False):
+    selected=con.execute(select(products,product_display.c.description,product_display.c.featured,product_display.c.sort_order)
+        .outerjoin(product_display,product_display.c.product_id==products.c.id)
+        .order_by(product_display.c.sort_order.asc(),products.c.name.asc())).mappings().all()
+    photos=con.execute(select(product_images).order_by(product_images.c.sort_order,product_images.c.id)).mappings().all()
+    grouped={}
+    for image in photos:
+        if include_hidden or image["active"]:
+            grouped.setdefault(image["product_id"],[]).append({
+                "id":image["id"],"url":image["url"],"alt":image["alt"],
+                "source_url":image["source_url"],"is_primary":bool(image["is_primary"]),
+                "active":bool(image["active"]),"sort_order":image["sort_order"],
+                **({"storage_managed":bool(image["storage_key"])} if include_hidden else {})
+            })
+    result=[]
+    for row in selected:
+        if not include_hidden and not row["active"]:continue
+        imgs=grouped.get(row["id"],[])
+        shown=[i for i in imgs if i["active"]]
+        primary=next((i for i in shown if i["is_primary"]),shown[0] if shown else None)
+        result.append({
+            "id":row["id"],"name":row["name"],"category":row["category"],
+            "minimum":row["minimum"],"estimate_unit_usd":f'{row["unit_cents"]/100:.2f}',
+            "pricing_note":"Illustrative only","active":bool(row["active"]),
+            "description":row["description"] or "",
+            "featured":bool(row["featured"]) if row["featured"] is not None else True,
+            "sort_order":row["sort_order"] if row["sort_order"] is not None else 100,
+            "photo":primary["url"] if primary else "",
+            "images":imgs if include_hidden else shown,
+        })
+    return result
+
 catalog = [
 ("lanyard","Full-Color Sublimation Lanyards","Lanyards",100,92),
 ("wristband","Custom Silicone Wristbands","Wristbands",100,68),
@@ -114,6 +184,12 @@ with engine.begin() as con:
     for pid,name,cat,minimum,cents in catalog:
         if not con.execute(select(products.c.id).where(products.c.id==pid)).first():
             con.execute(products.insert().values(id=pid,name=name,category=cat,minimum=minimum,unit_cents=cents,active=True))
+    for key in FEATURE_DEFAULTS:
+        if not con.execute(select(site_flags.c.key).where(site_flags.c.key==key)).first():
+            con.execute(site_flags.insert().values(key=key,enabled=FEATURE_DEFAULTS[key]))
+    for pid,name,cat,minimum,cents in catalog:
+        if not con.execute(select(product_display.c.product_id).where(product_display.c.product_id==pid)).first():
+            con.execute(product_display.insert().values(product_id=pid,description="",featured=True,sort_order=100))
     email=os.getenv("ADMIN_EMAIL","").strip().lower()
     password=os.getenv("ADMIN_PASSWORD","")
     if email and len(password)>=14 and not con.execute(select(users.c.id).where(users.c.email==email)).first():
@@ -200,16 +276,26 @@ def new_reference(prefix): return prefix+"-"+secrets.token_hex(7).upper()
 @app.get("/health")
 def health(): return {"status":"ok","payments_enabled":False}
 
+@app.get("/api/v1/site-config")
+def site_config():
+    with engine.connect() as con:
+        flags=active_features(con)
+    return {"features":flags,"pricing_note":"Illustrative only","payments_enabled":False}
+
 @app.get("/api/v1/products")
 def list_products():
     with engine.connect() as con:
-        found=con.execute(select(products).where(products.c.active==True)).mappings().all()
-    return {"products":[{"id":x["id"],"name":x["name"],"category":x["category"],"minimum":x["minimum"],"estimate_unit_usd":f'{x["unit_cents"]/100:.2f}',"pricing_note":"Illustrative only"} for x in found]}
+        flags=active_features(con)
+        result=public_product_records(con) if flags["storefront_enabled"] and flags["catalog_enabled"] else []
+    return {"products":result}
 
 @app.post("/api/v1/quotes",status_code=201)
 def create_quote(payload:QuoteInput,request:Request):
     limit(request,"quote",10)
+    # Check business controls on the server, never trust hidden client buttons.
     with engine.begin() as con:
+        flags=active_features(con)
+        if not flags["storefront_enabled"] or not flags["quotes_enabled"]:raise HTTPException(503,"Quote requests are currently disabled")
         p=con.execute(select(products).where(products.c.id==payload.product_id,products.c.active==True)).mappings().first()
         if not p: raise HTTPException(422,"Invalid product")
         if payload.quantity<p["minimum"]: raise HTTPException(422,f'Minimum quantity: {p["minimum"]}')
@@ -221,7 +307,10 @@ def create_quote(payload:QuoteInput,request:Request):
 @app.post("/api/v1/orders",status_code=201)
 def create_order(payload:OrderInput,request:Request):
     limit(request,"order",6)
+    # Check business controls on the server, never trust hidden client buttons.
     with engine.begin() as con:
+        flags=active_features(con)
+        if not flags["storefront_enabled"] or not flags["proof_requests_enabled"] or not flags["cart_enabled"]:raise HTTPException(503,"Proof requests are currently disabled")
         subtotal=0
         lines=[]
         for item in payload.items:
