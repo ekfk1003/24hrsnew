@@ -1,0 +1,27 @@
+name: Frontend integrity checks
+on:
+  push:
+    paths:
+      - 'index.html'
+      - 'admin.html'
+      - 'config.js'
+      - 'hq-experience.js'
+      - 'hq-experience.css'
+      - 'tests/**'
+      - '.github/workflows/frontend-checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate HTML references and JavaScript syntax
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
