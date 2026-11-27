@@ -199,6 +199,20 @@ def list_records(table,kind,user):
             result.append(r)
     return {kind:result}
 
+@app.get("/api/v1/admin/contacts")
+def admin_contacts(user=Depends(auth)):
+    allowed(user,{"admin","sales","ops","viewer"})
+    with engine.connect() as con:
+        found=con.execute(select(contacts).order_by(contacts.c.id.desc()).limit(150)).mappings().all()
+    return {"contacts":[{"id":x["id"],"name":x["name"],"email":x["email"],"company":x["company"] or "", "phone":x["phone"] or ""} for x in found]}
+
+@app.get("/api/v1/admin/audit")
+def admin_audit(user=Depends(auth)):
+    allowed(user,{"admin"})
+    with engine.connect() as con:
+        found=con.execute(select(audit).order_by(audit.c.id.desc()).limit(40)).mappings().all()
+    return {"events":[{"action":x["action"],"actor":x["actor"],"reference":x["reference"],"created_at":x["created_at"].isoformat() if x["created_at"] else ""} for x in found]}
+
 @app.get("/api/v1/admin/quotes")
 def admin_quotes(user=Depends(auth)): return list_records(quotes,"quotes",user)
 
