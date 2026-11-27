@@ -1,6 +1,8 @@
 """24hrsprinting — quote and proof-request API. Not a payment processor."""
 import os, time, secrets, hashlib, hmac, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
+import re
 from contextlib import contextmanager
 import jwt
 from fastapi import FastAPI, HTTPException, Request, Header, Depends, UploadFile, File, Form
@@ -304,6 +306,16 @@ def contact_id(con,payload):
     result=con.execute(contacts.insert().values(name=payload.name,email=email,company=payload.company,phone=payload.phone))
     return result.inserted_primary_key[0]
 
+
+# Illustrative subtotal logic shared with the storefront's displayed tier/finish rule.
+# This is NOT an approved sale price; taxes/shipping/rush/supplier costs are excluded.
+def estimate_line_cents(unit_cents:int, quantity:int, finish:str="")->int:
+    tier=(Decimal("0.66") if quantity>=5000 else Decimal("0.74") if quantity>=2000
+          else Decimal("0.83") if quantity>=1000 else Decimal("0.92") if quantity>=500
+          else Decimal("1"))
+    upgrade=Decimal("1.12") if re.search(r"Full-color|Double-side|3D|2-color|Printed|Laser",finish or "") else Decimal("1")
+    return int((Decimal(unit_cents)*Decimal(quantity)*tier*upgrade).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
 def new_reference(prefix): return prefix+"-"+secrets.token_hex(7).upper()
 
 @app.get("/health")
@@ -350,8 +362,12 @@ def create_order(payload:OrderInput,request:Request):
             p=con.execute(select(products).where(products.c.id==item.product_id,products.c.active==True)).mappings().first()
             if not p: raise HTTPException(422,f"Invalid product: {item.product_id}")
             if item.quantity<p["minimum"]: raise HTTPException(422,f'Minimum quantity for {p["name"]}: {p["minimum"]}')
-            subtotal+=item.quantity*p["unit_cents"]
-            lines.append(item.model_dump())
+            line_cents=estimate_line_cents(p["unit_cents"],item.quantity,item.finish)
+            subtotal+=line_cents
+            snapshot=item.model_dump()
+            snapshot["estimate_line_cents"]=line_cents
+            snapshot["pricing_note"]="Illustrative only; taxes, shipping, rush, and final vendor pricing excluded"
+            lines.append(snapshot)
         if subtotal>100000000: raise HTTPException(422,"Please request a custom quote")
         cid=contact_id(con,payload)
         reference=new_reference("PR")
