@@ -699,3 +699,8 @@ def order_status(reference:str,payload:StatusInput,user=Depends(auth)):
         con.execute(orders.update().where(orders.c.id==reference).values(status=payload.status))
         con.execute(audit.insert().values(actor=user["email"],action="order_status",reference=reference))
     return {"reference":reference,"status":payload.status}
+
+
+# Register safe, allow-listed AI page design drafts, publishing and rollback.
+from cms_brain import register_cms_brain
+register_cms_brain(app,engine,DB_SCHEMA,auth,allowed,audit,limit)
