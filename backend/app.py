@@ -31,6 +31,61 @@ quotes = Table("quotes",meta,Column("id",String(42),primary_key=True),Column("co
 orders = Table("orders",meta,Column("id",String(42),primary_key=True),Column("contact_id",ForeignKey("contacts.id")),Column("delivery_zip",String(15)),Column("notes",Text),Column("items",JSON),Column("estimated_subtotal_cents",Integer),Column("status",String(30),default="proof_requested"),Column("created_at",DateTime,default=datetime.utcnow))
 users = Table("users",meta,Column("id",Integer,primary_key=True,autoincrement=True),Column("email",String(254),unique=True,nullable=False),Column("name",String(100)),Column("role",String(30)),Column("password_hash",String(200)),Column("active",Boolean,default=True))
 audit = Table("audit",meta,Column("id",Integer,primary_key=True,autoincrement=True),Column("actor",String(254)),Column("action",String(90)),Column("reference",String(42)),Column("created_at",DateTime,default=datetime.utcnow))
+# SaaS test foundation: lead review and content approval are internal only.
+# No external scraping, campaign sending, OAuth or publishing is attempted here.
+leads = Table("prospect_leads",meta,
+    Column("id",Integer,primary_key=True,autoincrement=True),
+    Column("organization",String(160),nullable=False),
+    Column("website",String(255),nullable=False),
+    Column("segment",String(80),nullable=False),
+    Column("country",String(80),nullable=False,default="United States"),
+    Column("contact_name",String(100),nullable=False,default=""),
+    Column("contact_email",String(254),nullable=False,default=""),
+    Column("source_url",String(1000),nullable=False),
+    Column("notes",Text,nullable=False,default=""),
+    Column("status",String(24),nullable=False,default="needs_review"),
+    Column("created_at",DateTime,default=datetime.utcnow))
+content_drafts = Table("content_drafts",meta,
+    Column("id",String(42),primary_key=True),
+    Column("channel",String(45),nullable=False),
+    Column("title",String(160),nullable=False),
+    Column("body",Text,nullable=False),
+    Column("status",String(24),nullable=False,default="draft"),
+    Column("created_at",DateTime,default=datetime.utcnow))
+# Registry entries represent documented capabilities, NOT connected accounts.
+INTEGRATION_REGISTRY = [
+    ("facebook","social","Facebook Page","publish","OAuth + Page permissions","https://developers.facebook.com/docs/graph-api/reference/page/feed/"),
+    ("instagram","social","Instagram Professional","publish","Meta app permissions + professional account","https://developers.facebook.com/docs/instagram-platform/"),
+    ("linkedin","social","LinkedIn Organization","publish","OAuth + approved organization social scopes","https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api"),
+    ("x","social","X","publish","Developer credits and account OAuth","https://developer.x.com/"),
+    ("tiktok","social","TikTok","publish","Content Posting API audit + consent","https://developers.tiktok.com/docs/en/content-posting-api-get-started"),
+    ("pinterest","social","Pinterest","publish","Developer app + authorized account","https://developers.pinterest.com/docs/work-with-organic-content-and-users/create-boards-and-pins/"),
+    ("youtube","social","YouTube","publish","Google Cloud OAuth and Data API","https://developers.google.com/youtube/v3/docs/videos/insert"),
+    ("reddit","community","Reddit","limited","API/developer approval and community rules","https://support.reddithelp.com/hc/en-us/articles/14945211791892-Developer-Platform-Accessing-Reddit-Data"),
+    ("telegram","messaging","Telegram Channel","publish","Bot token + channel admin rights","https://core.telegram.org/bots/api"),
+    ("whatsapp_business","messaging","WhatsApp Business","messages","WhatsApp Business Platform and opt-in","https://developers.facebook.com/documentation/business-messaging/whatsapp/overview"),
+    ("whatsapp_channel","messaging","WhatsApp Channel","manual","No verified official public publishing API","https://faq.whatsapp.com/794229125227200/"),
+    ("google_business","directory","Google Business Profile","publish","Verified eligible locations and approved API access","https://developers.google.com/my-business/"),
+    ("craigslist","directory","Craigslist","manual","Review individual posting rules; no general approved auto-posting connector","https://www.craigslist.org/about/help/"),
+    ("yelp","directory","Yelp","limited","Business management tools and official API eligibility","https://docs.developer.yelp.com/"),
+    ("bbb","directory","BBB","manual","Business profile management; no general posting API verified","https://www.bbb.org/"),
+    ("alignable","directory","Alignable","manual","Business profile management; no general publishing API verified","https://www.alignable.com/"),
+    ("rss","content","RSS/Atom","feed","Owned-site generated feed","https://www.rssboard.org/rss-specification"),
+    ("getresponse","marketing","GetResponse","email","API account access and compliant consent","https://apidocs.getresponse.com/"),
+    ("shopify","store","Shopify","sync","OAuth app and Admin GraphQL scopes","https://shopify.dev/docs/api/admin-graphql/latest"),
+    ("woocommerce","store","WooCommerce","sync","Site REST API credentials and webhooks","https://developer.woocommerce.com/docs/apis/rest-api/"),
+    ("oscommerce","store","osCommerce","custom","Version-dependent custom connector; verify existing store API","https://library.oscommerce.com/"),
+    ("etsy","store","Etsy","sync","OAuth app approval and listing scopes","https://developer.etsy.com/documentation/"),
+    ("ebay","store","eBay","sync","Sell API OAuth and listing policies","https://developer.ebay.com/api-docs/sell/static/inventory/managing-inventory-and-offers.html"),
+    ("google_merchant","store","Google Merchant Center","feed","Merchant API account and developer registration","https://developers.google.com/merchant/api"),
+    ("faire","store","Faire","sync","Authorized brand/partner API access","https://faire.github.io/external-api-v2-docs/"),
+    ("amazon","store","Amazon SP-API","sync","Selling Partner authorization and approved app","https://developer-docs.amazon/sp-api/docs/what-is-the-selling-partner-api"),
+    ("tiktok_shop","store","TikTok Shop","sync","Region-specific shop and partner API authorization","https://partner.tiktokshop.com/"),
+    ("apollo","leads","Apollo","discover","Licensed API access and appropriate commercial use","https://docs.apollo.io/"),
+    ("hunter","leads","Hunter","verify","API key + legal use of email discovery","https://hunter.io/api-documentation"),
+    ("asi","suppliers","ASI/ESP","limited","Eligible account and partner integration approval","https://developers.asicentral.com/EspUpdates"),
+]
+
 catalog = [
 ("lanyard","Full-Color Sublimation Lanyards","Lanyards",100,92),
 ("wristband","Custom Silicone Wristbands","Wristbands",100,68),
@@ -108,6 +163,28 @@ class ProductUpdateInput(BaseModel):
     name: str=Field(min_length=3,max_length=160)
     minimum: int=Field(ge=1,le=200000)
     unit_cents: int=Field(ge=1,le=10000000)
+
+
+class LeadCreateInput(BaseModel):
+    organization: str=Field(min_length=2,max_length=160)
+    website: str=Field(min_length=4,max_length=255)
+    segment: str=Field(min_length=2,max_length=80)
+    country: str=Field(default="United States",max_length=80)
+    contact_name: str=Field(default="",max_length=100)
+    contact_email: EmailStr|None=None
+    source_url: str=Field(min_length=8,max_length=1000)
+    notes: str=Field(default="",max_length=1000)
+
+class LeadStatusInput(BaseModel):
+    status: str
+
+class DraftCreateInput(BaseModel):
+    channel: str=Field(min_length=2,max_length=45)
+    title: str=Field(min_length=3,max_length=160)
+    body: str=Field(min_length=5,max_length=5000)
+
+class DraftStatusInput(BaseModel):
+    status: str
 
 def contact_id(con,payload):
     email=str(payload.email).strip().lower()
@@ -228,6 +305,94 @@ def admin_audit(user=Depends(auth)):
     with engine.connect() as con:
         found=con.execute(select(audit).order_by(audit.c.id.desc()).limit(40)).mappings().all()
     return {"events":[{"action":x["action"],"actor":x["actor"],"reference":x["reference"],"created_at":x["created_at"].isoformat() if x["created_at"] else ""} for x in found]}
+
+
+@app.get("/api/v1/admin/integrations")
+def get_integrations(user=Depends(auth)):
+    allowed(user,{"admin","sales","ops","viewer"})
+    # Static readiness catalog, never implies successful OAuth authorization or publishing.
+    return {"integrations":[{
+        "id":key,"kind":kind,"name":name,"capability":capability,
+        "status":"not_connected","requirement":requirement,"docs":docs,
+        "test_status":"not_run"
+    } for key,kind,name,capability,requirement,docs in INTEGRATION_REGISTRY],
+    "message":"Provider documentation checked; no external channel tokens are configured or tested."}
+
+@app.get("/api/v1/admin/leads")
+def get_leads(user=Depends(auth)):
+    allowed(user,{"admin","sales","ops","viewer"})
+    with engine.connect() as con:
+        found=con.execute(select(leads).order_by(leads.c.id.desc()).limit(200)).mappings().all()
+    return {"leads":[{
+        "id":x["id"],"organization":x["organization"],"website":x["website"],
+        "segment":x["segment"],"country":x["country"],"contact_name":x["contact_name"],
+        "contact_email":x["contact_email"],"source_url":x["source_url"],
+        "notes":x["notes"],"status":x["status"],
+        "created_at":x["created_at"].isoformat() if x["created_at"] else ""
+    } for x in found]}
+
+@app.post("/api/v1/admin/leads",status_code=201)
+def add_lead(payload:LeadCreateInput,user=Depends(auth)):
+    allowed(user,{"admin","sales"})
+    if not payload.website.startswith(("https://","http://")) or not payload.source_url.startswith(("https://","http://")):
+        raise HTTPException(422,"Website and provenance URLs must use HTTP(S)")
+    email=str(payload.contact_email).lower() if payload.contact_email else ""
+    with engine.begin() as con:
+        duplicate=con.execute(select(leads.c.id).where(leads.c.website==payload.website.strip().lower())).first()
+        if duplicate: raise HTTPException(409,"Organization website already exists in review queue")
+        result=con.execute(leads.insert().values(
+            organization=payload.organization.strip(),website=payload.website.strip().lower(),
+            segment=payload.segment.strip(),country=payload.country.strip(),
+            contact_name=payload.contact_name.strip(),contact_email=email,
+            source_url=payload.source_url.strip(),notes=payload.notes.strip(),status="needs_review"))
+        ident=result.inserted_primary_key[0]
+        con.execute(audit.insert().values(actor=user["email"],action="lead_created",reference=str(ident)))
+    return {"id":ident,"status":"needs_review","message":"Lead saved for human review; no outreach sent"}
+
+@app.patch("/api/v1/admin/leads/{lead_id}")
+def review_lead(lead_id:int,payload:LeadStatusInput,user=Depends(auth)):
+    allowed(user,{"admin","sales"})
+    if payload.status not in {"needs_review","qualified","rejected","suppressed"}:
+        raise HTTPException(422,"Invalid lead status")
+    with engine.begin() as con:
+        if not con.execute(select(leads.c.id).where(leads.c.id==lead_id)).first():raise HTTPException(404,"Lead not found")
+        con.execute(leads.update().where(leads.c.id==lead_id).values(status=payload.status))
+        con.execute(audit.insert().values(actor=user["email"],action="lead_review",reference=str(lead_id)))
+    return {"id":lead_id,"status":payload.status,"outreach_sent":False}
+
+@app.get("/api/v1/admin/content-drafts")
+def get_content_drafts(user=Depends(auth)):
+    allowed(user,{"admin","sales","ops","viewer"})
+    with engine.connect() as con:
+        found=con.execute(select(content_drafts).order_by(content_drafts.c.created_at.desc()).limit(150)).mappings().all()
+    return {"drafts":[{
+        "reference":x["id"],"channel":x["channel"],"title":x["title"],"body":x["body"],
+        "status":x["status"],"created_at":x["created_at"].isoformat() if x["created_at"] else ""
+    } for x in found]}
+
+@app.post("/api/v1/admin/content-drafts",status_code=201)
+def create_content_draft(payload:DraftCreateInput,user=Depends(auth)):
+    allowed(user,{"admin","sales"})
+    known={entry[0] for entry in INTEGRATION_REGISTRY}
+    if payload.channel not in known:raise HTTPException(422,"Unknown channel")
+    ref=new_reference("CD")
+    with engine.begin() as con:
+        con.execute(content_drafts.insert().values(id=ref,channel=payload.channel,
+            title=payload.title.strip(),body=payload.body.strip(),status="draft"))
+        con.execute(audit.insert().values(actor=user["email"],action="draft_created",reference=ref))
+    return {"reference":ref,"status":"draft","published":False}
+
+@app.patch("/api/v1/admin/content-drafts/{reference}")
+def review_content_draft(reference:str,payload:DraftStatusInput,user=Depends(auth)):
+    allowed(user,{"admin"})
+    if payload.status not in {"draft","approved","rejected"}:raise HTTPException(422,"Invalid approval status")
+    with engine.begin() as con:
+        if not con.execute(select(content_drafts.c.id).where(content_drafts.c.id==reference)).first():
+            raise HTTPException(404,"Draft not found")
+        con.execute(content_drafts.update().where(content_drafts.c.id==reference).values(status=payload.status))
+        con.execute(audit.insert().values(actor=user["email"],action="draft_review",reference=reference))
+    return {"reference":reference,"status":payload.status,"published":False,
+        "message":"Approval saved internally; no external publish integration is configured"}
 
 @app.get("/api/v1/admin/quotes")
 def admin_quotes(user=Depends(auth)): return list_records(quotes,"quotes",user)
