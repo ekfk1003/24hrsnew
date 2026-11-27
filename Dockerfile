@@ -6,5 +6,6 @@ WORKDIR /app
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app.py ./app.py
+COPY backend/cms_brain.py ./cms_brain.py
 EXPOSE 10000
 CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000} --proxy-headers"]
