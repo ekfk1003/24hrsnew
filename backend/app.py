@@ -1,11 +1,11 @@
 """24hrsprinting — quote and proof-request API. Not a payment processor."""
-import os, time, secrets, hashlib, hmac
+import os, time, secrets, hashlib, hmac, urllib.parse, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 import jwt
-from fastapi import FastAPI, HTTPException, Request, Header, Depends
+from fastapi import FastAPI, HTTPException, Request, Header, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, Boolean, ForeignKey, DateTime, select, func, JSON, text as sql_text
 from sqlalchemy.exc import IntegrityError
 
@@ -241,6 +241,34 @@ class ProductUpdateInput(BaseModel):
     unit_cents: int=Field(ge=1,le=10000000)
 
 
+
+class ProductCreateInput(BaseModel):
+    id: str=Field(pattern=r"^[a-z0-9][a-z0-9-]{1,58}$")
+    name: str=Field(min_length=3,max_length=160)
+    category: str=Field(min_length=2,max_length=80)
+    minimum: int=Field(ge=1,le=200000)
+    unit_cents: int=Field(ge=1,le=10000000)
+    description: str=Field(default="",max_length=2000)
+    featured: bool=True
+    sort_order: int=Field(default=100,ge=0,le=100000)
+    active: bool=True
+
+class ProductVisibilityInput(BaseModel):
+    active: bool
+
+class ProductDisplayInput(BaseModel):
+    description: str=Field(default="",max_length=2000)
+    featured: bool=True
+    sort_order: int=Field(default=100,ge=0,le=100000)
+
+class ImageURLInput(BaseModel):
+    url: HttpUrl
+    alt: str=Field(min_length=3,max_length=240)
+    source_url: HttpUrl|None=None
+
+class FeatureFlagInput(BaseModel):
+    enabled: bool
+
 class LeadCreateInput(BaseModel):
     organization: str=Field(min_length=2,max_length=160)
     website: str=Field(min_length=4,max_length=255)
@@ -380,6 +408,164 @@ def update_product(product_id:str,payload:ProductUpdateInput,user=Depends(auth))
             name=payload.name.strip(),minimum=payload.minimum,unit_cents=payload.unit_cents))
         con.execute(audit.insert().values(actor=user["email"],action="product_update",reference=product_id))
     return {"id":product_id,"name":payload.name.strip(),"minimum":payload.minimum,"estimate_unit_usd":f"{payload.unit_cents/100:.2f}","pricing_note":"Illustrative only"}
+
+
+@app.get("/api/v1/admin/catalog")
+def admin_catalog(user=Depends(auth)):
+    allowed(user,{"admin","sales","ops","viewer"})
+    with engine.connect() as con:
+        return {"products":public_product_records(con,include_hidden=True)}
+
+@app.post("/api/v1/admin/products",status_code=201)
+def create_product(payload:ProductCreateInput,user=Depends(auth)):
+    allowed(user,{"admin"})
+    with engine.begin() as con:
+        if con.execute(select(products.c.id).where(products.c.id==payload.id)).first():
+            raise HTTPException(409,"Product ID already exists")
+        con.execute(products.insert().values(id=payload.id,name=payload.name.strip(),category=payload.category.strip(),
+           minimum=payload.minimum,unit_cents=payload.unit_cents,active=payload.active))
+        con.execute(product_display.insert().values(product_id=payload.id,description=payload.description.strip(),
+           featured=payload.featured,sort_order=payload.sort_order))
+        con.execute(audit.insert().values(actor=user["email"],action="product_created",reference=payload.id))
+    return {"id":payload.id,"active":payload.active}
+
+@app.patch("/api/v1/admin/products/{product_id}/visibility")
+def set_product_visibility(product_id:str,payload:ProductVisibilityInput,user=Depends(auth)):
+    allowed(user,{"admin"})
+    with engine.begin() as con:
+        if not con.execute(select(products.c.id).where(products.c.id==product_id)).first():
+            raise HTTPException(404,"Product not found")
+        con.execute(products.update().where(products.c.id==product_id).values(active=payload.active))
+        con.execute(audit.insert().values(actor=user["email"],action="product_visibility",reference=product_id))
+    return {"id":product_id,"active":payload.active}
+
+@app.patch("/api/v1/admin/products/{product_id}/display")
+def set_product_display(product_id:str,payload:ProductDisplayInput,user=Depends(auth)):
+    allowed(user,{"admin"})
+    with engine.begin() as con:
+        if not con.execute(select(products.c.id).where(products.c.id==product_id)).first():
+            raise HTTPException(404,"Product not found")
+        vals={"description":payload.description.strip(),"featured":payload.featured,"sort_order":payload.sort_order}
+        present=con.execute(select(product_display.c.product_id).where(product_display.c.product_id==product_id)).first()
+        if present:con.execute(product_display.update().where(product_display.c.product_id==product_id).values(**vals))
+        else:con.execute(product_display.insert().values(product_id=product_id,**vals))
+        con.execute(audit.insert().values(actor=user["email"],action="product_display",reference=product_id))
+    return {"id":product_id,**vals}
+
+@app.get("/api/v1/admin/features")
+def admin_features(user=Depends(auth)):
+    allowed(user,{"admin","sales","ops","viewer"})
+    with engine.connect() as con:flags=active_features(con)
+    return {"features":[{"key":key,"name":name,"description":description,"enabled":flags[key]}
+        for key,name,description in FEATURE_DEFINITIONS]}
+
+@app.patch("/api/v1/admin/features/{key}")
+def set_feature(key:str,payload:FeatureFlagInput,user=Depends(auth)):
+    allowed(user,{"admin"})
+    if key not in FEATURE_DEFAULTS:raise HTTPException(404,"Unknown feature")
+    with engine.begin() as con:
+        exists=con.execute(select(site_flags.c.key).where(site_flags.c.key==key)).first()
+        if exists:con.execute(site_flags.update().where(site_flags.c.key==key).values(enabled=payload.enabled))
+        else:con.execute(site_flags.insert().values(key=key,enabled=payload.enabled))
+        con.execute(audit.insert().values(actor=user["email"],action="feature_changed",reference=key))
+    return {"key":key,"enabled":payload.enabled}
+
+def safe_public_image_url(link):
+    parsed=urllib.parse.urlsplit(str(link))
+    if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password:
+        raise HTTPException(422,"Use a public HTTPS image URL without credentials")
+    host=parsed.hostname.lower()
+    if host in {"localhost","localhost.localdomain"} or host.endswith((".local",".internal")) or host.startswith(("127.","10.","192.168.","169.254.","172.16.","172.17.","172.18.","172.19.","172.2","172.30.","172.31.","0.","[::")):
+        raise HTTPException(422,"Private network links cannot be used for product photos")
+    return str(link)
+
+@app.post("/api/v1/admin/products/{product_id}/images",status_code=201)
+def add_product_image(product_id:str,payload:ImageURLInput,user=Depends(auth)):
+    allowed(user,{"admin"})
+    link=safe_public_image_url(payload.url)
+    source=safe_public_image_url(payload.source_url) if payload.source_url else ""
+    with engine.begin() as con:
+        if not con.execute(select(products.c.id).where(products.c.id==product_id)).first():
+            raise HTTPException(404,"Product not found")
+        count=con.scalar(select(func.count()).select_from(product_images).where(product_images.c.product_id==product_id,product_images.c.active==True))
+        if count>=20:raise HTTPException(422,"Maximum 20 active photos per product")
+        result=con.execute(product_images.insert().values(product_id=product_id,url=link,
+            alt=payload.alt.strip(),source_url=source,is_primary=(count==0),active=True,sort_order=count+1))
+        photo_id=result.inserted_primary_key[0]
+        con.execute(audit.insert().values(actor=user["email"],action="image_added",reference=product_id))
+    return {"id":photo_id,"product_id":product_id,"url":link,"active":True}
+
+@app.patch("/api/v1/admin/products/{product_id}/images/{image_id}/primary")
+def set_primary_image(product_id:str,image_id:int,user=Depends(auth)):
+    allowed(user,{"admin"})
+    with engine.begin() as con:
+        found=con.execute(select(product_images.c.id).where(product_images.c.id==image_id,
+            product_images.c.product_id==product_id,product_images.c.active==True)).first()
+        if not found:raise HTTPException(404,"Photo not found")
+        con.execute(product_images.update().where(product_images.c.product_id==product_id).values(is_primary=False))
+        con.execute(product_images.update().where(product_images.c.id==image_id).values(is_primary=True))
+        con.execute(audit.insert().values(actor=user["email"],action="image_primary",reference=product_id))
+    return {"id":image_id,"is_primary":True}
+
+@app.delete("/api/v1/admin/products/{product_id}/images/{image_id}")
+def remove_image(product_id:str,image_id:int,user=Depends(auth)):
+    allowed(user,{"admin"})
+    with engine.begin() as con:
+        found=con.execute(select(product_images).where(product_images.c.id==image_id,
+            product_images.c.product_id==product_id,product_images.c.active==True)).mappings().first()
+        if not found:raise HTTPException(404,"Photo not found")
+        # Soft delete retains audit history and avoids deleting shared remote images.
+        con.execute(product_images.update().where(product_images.c.id==image_id).values(active=False,is_primary=False))
+        nextimg=con.execute(select(product_images.c.id).where(product_images.c.product_id==product_id,
+            product_images.c.active==True).order_by(product_images.c.sort_order,product_images.c.id)).first()
+        if nextimg:
+            already=con.execute(select(product_images.c.id).where(product_images.c.product_id==product_id,
+                product_images.c.active==True,product_images.c.is_primary==True)).first()
+            if not already:con.execute(product_images.update().where(product_images.c.id==nextimg.id).values(is_primary=True))
+        con.execute(audit.insert().values(actor=user["email"],action="image_removed",reference=product_id))
+    return {"id":image_id,"active":False}
+
+@app.post("/api/v1/admin/products/{product_id}/images/upload",status_code=201)
+async def upload_product_image(product_id:str,file:UploadFile=File(...),alt:str=Form(...),user=Depends(auth)):
+    allowed(user,{"admin"})
+    base=os.getenv("SUPABASE_URL","").strip().rstrip("/")
+    secret=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
+    bucket=os.getenv("PRODUCT_MEDIA_BUCKET","product-media").strip()
+    if not base or not secret:raise HTTPException(503,"Product uploads require SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Render")
+    if file.content_type not in {"image/jpeg","image/png","image/webp"}:
+        raise HTTPException(422,"Only JPEG, PNG and WebP images are accepted")
+    data=await file.read(5_000_001)
+    if len(data)>5_000_000:raise HTTPException(413,"Image exceeds 5 MB")
+    valid=((data.startswith(b"\xff\xd8\xff") and file.content_type=="image/jpeg")
+        or (data.startswith(b"\x89PNG\r\n\x1a\n") and file.content_type=="image/png")
+        or (data.startswith(b"RIFF") and data[8:12]==b"WEBP" and file.content_type=="image/webp"))
+    if not valid:raise HTTPException(422,"Invalid image data")
+    alt=alt.strip()
+    if not (3<=len(alt)<=240):raise HTTPException(422,"Alt text must be 3–240 characters")
+    with engine.connect() as con:
+        if not con.execute(select(products.c.id).where(products.c.id==product_id)).first():
+            raise HTTPException(404,"Product not found")
+        count=con.scalar(select(func.count()).select_from(product_images).where(product_images.c.product_id==product_id,product_images.c.active==True))
+        if count>=20:raise HTTPException(422,"Maximum 20 active photos per product")
+    ext={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"}[file.content_type]
+    key=product_id+"/"+secrets.token_hex(16)+"."+ext
+    resource=base+"/storage/v1/object/"+urllib.parse.quote(bucket,safe="")+"/"+urllib.parse.quote(key,safe="/")
+    request=urllib.request.Request(resource,data=data,method="POST",
+        headers={"Authorization":"Bearer "+secret,"apikey":secret,"Content-Type":file.content_type,
+                 "x-upsert":"false","cache-control":"3600"})
+    try:
+        with urllib.request.urlopen(request,timeout=12) as response: response.read()
+    except urllib.error.HTTPError as err:
+        raise HTTPException(502,"Image storage upload failed ("+str(err.code)+"). Check bucket and storage policy.")
+    except (OSError,TimeoutError):
+        raise HTTPException(502,"Image storage temporarily unavailable")
+    public_url=base+"/storage/v1/object/public/"+urllib.parse.quote(bucket,safe="")+"/"+urllib.parse.quote(key,safe="/")
+    with engine.begin() as con:
+        result=con.execute(product_images.insert().values(product_id=product_id,url=public_url,
+            alt=alt,source_url="",storage_key=key,is_primary=(count==0),active=True,sort_order=count+1))
+        photo_id=result.inserted_primary_key[0]
+        con.execute(audit.insert().values(actor=user["email"],action="image_uploaded",reference=product_id))
+    return {"id":photo_id,"product_id":product_id,"url":public_url,"active":True}
 
 @app.get("/api/v1/admin/contacts")
 def admin_contacts(user=Depends(auth)):
