@@ -33,7 +33,7 @@ function apply(){
    for(const [key,selector] of Object.entries(fields)){
      const val=values[key];if(typeof val!=='string')continue;
      const node=(fieldMappings[page+'.'+key]||(()=>document.querySelector(selector)))();
-     if(node)node.textContent=val;
+     if(node){const output=page==='global'&&key==='announcement'?val+' · Proof requests only · No online payments':val;if(node.textContent!==output)node.textContent=output;}
    }
  }
  const glob=pages.global?.config||{},home=pages.home?.config||{},catalog=pages.catalog?.config||{};
