@@ -31,10 +31,16 @@ engine = create_engine(
     DB_URL, pool_pre_ping=True, pool_size=2, max_overflow=0, pool_recycle=300,
     connect_args={"check_same_thread": False} if IS_SQLITE else {"sslmode": "require"}
 )
-if DB_SCHEMA:
+# The staging database role must not own schemas or have database-wide CREATE rights.
+# Schema/permissions are provisioned separately; fail closed if missing.
+if DB_SCHEMA and APP_ENV == "staging":
+    with engine.connect() as conn:
+        if not conn.execute(sql_text("SELECT has_schema_privilege(current_user, 'app_staging', 'USAGE') AND has_schema_privilege(current_user, 'app_staging', 'CREATE') AND NOT has_schema_privilege(current_user, 'app_private', 'USAGE')")).scalar():
+            raise RuntimeError("Staging database role must have isolated app_staging access and no app_private access")
+elif DB_SCHEMA:
     with engine.begin() as conn:
-        conn.execute(sql_text(f"CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA}"))
-        conn.execute(sql_text(f"REVOKE ALL ON SCHEMA {DB_SCHEMA} FROM PUBLIC"))
+        conn.execute(sql_text("CREATE SCHEMA IF NOT EXISTS app_private"))
+        conn.execute(sql_text("REVOKE ALL ON SCHEMA app_private FROM PUBLIC"))
 meta = MetaData(schema=DB_SCHEMA)
 products = Table("products",meta,Column("id",String(60),primary_key=True),Column("name",String(160),nullable=False),Column("category",String(80),nullable=False),Column("minimum",Integer,nullable=False),Column("unit_cents",Integer,nullable=False),Column("active",Boolean,default=True))
 contacts = Table("contacts",meta,Column("id",Integer,primary_key=True,autoincrement=True),Column("email",String(254),unique=True,nullable=False),Column("name",String(100),nullable=False),Column("company",String(140)),Column("phone",String(40)))
