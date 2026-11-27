@@ -120,6 +120,7 @@ FEATURE_DEFINITIONS = [
     ("show_process","How it works","Shows homepage process explanation"),
 ]
 FEATURE_DEFAULTS={x[0]:True for x in FEATURE_DEFINITIONS}
+INITIAL_PRODUCT_PHOTOS={"lanyard":["https://images.pexels.com/photos/8761304/pexels-photo-8761304.jpeg?auto=compress&cs=tinysrgb&w=1100","https://www.pexels.com/photo/badges-on-lanyards-8761304/"],"wristband":["https://upload.wikimedia.org/wikipedia/commons/8/88/Custom_Wristbands.jpg","https://commons.wikimedia.org/wiki/File:Custom_Wristbands.jpg"],"bags":["https://images.pexels.com/photos/9603488/pexels-photo-9603488.jpeg?auto=compress&cs=tinysrgb&w=1100","https://www.pexels.com/photo/a-person-holding-a-drawstring-bag-9603488/"],"can-cooler":["https://upload.wikimedia.org/wikipedia/commons/1/1a/KOOZIE_Picture.jpg","https://commons.wikimedia.org/wiki/File:KOOZIE_Picture.jpg"],"totes":["https://images.pexels.com/photos/9869067/pexels-photo-9869067.jpeg?auto=compress&cs=tinysrgb&w=1100","https://www.pexels.com/photo/plain-tote-bag-9869067/"],"socks":["https://images.pexels.com/photos/15195384/pexels-photo-15195384.jpeg?auto=compress&cs=tinysrgb&w=1100","https://www.pexels.com/photo/colorful-socks-on-legs-15195384/"],"keychains":["https://images.pexels.com/photos/26730920/pexels-photo-26730920.jpeg?auto=compress&cs=tinysrgb&w=1100","https://www.pexels.com/photo/souvenirs-in-a-shop-26730920/"],"tumblers":["https://images.pexels.com/photos/19155039/pexels-photo-19155039.jpeg?auto=compress&cs=tinysrgb&w=1100","https://www.pexels.com/photo/steel-travel-mug-on-table-19155039/"]}
 def active_features(con):
     found=con.execute(select(site_flags.c.key,site_flags.c.enabled)).all()
     return {**FEATURE_DEFAULTS,**{key:bool(enabled) for key,enabled in found}}
@@ -190,6 +191,10 @@ with engine.begin() as con:
     for pid,name,cat,minimum,cents in catalog:
         if not con.execute(select(product_display.c.product_id).where(product_display.c.product_id==pid)).first():
             con.execute(product_display.insert().values(product_id=pid,description="",featured=True,sort_order=100))
+            seed=INITIAL_PRODUCT_PHOTOS.get(pid)
+            if seed:
+                con.execute(product_images.insert().values(product_id=pid,url=seed[0],
+                    source_url=seed[1],alt=name+" reference photo",storage_key="",is_primary=True,active=True,sort_order=0))
     email=os.getenv("ADMIN_EMAIL","").strip().lower()
     password=os.getenv("ADMIN_PASSWORD","")
     if email and len(password)>=14 and not con.execute(select(users.c.id).where(users.c.email==email)).first():
