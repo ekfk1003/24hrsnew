@@ -32,7 +32,7 @@ class FrontendContract(unittest.TestCase):
     def test_admin_references_exist(self):
         doc=self.parse("admin.html")
         self.assertEqual(len(doc.ids),len(set(doc.ids)),"Duplicate HTML IDs")
-        for ident in ["dashboard","hqNav","loginForm","records","showQuotes","showOrders","showContacts","showProducts","showTest","showAudit","showReference","role","logout"]:
+        for ident in ["dashboard","hqNav","loginForm","records","showQuotes","showOrders","showContacts","showProducts","showTest","showAudit","showReference","showDesignStudio","showRoadmap","role","logout"]:
             self.assertIn(ident,doc.ids)
         for filename in ["config.js","./hq-experience.css","./hq-experience.js"]:
             self.assertIn(filename,doc.refs)
@@ -44,6 +44,7 @@ class FrontendContract(unittest.TestCase):
         self.assertNotIn("JWT_SECRET=",config)
         doc=self.parse("index.html")
         self.assertIn("config.js",doc.refs)
+        self.assertIn("./site-design.js",doc.refs)
     def test_frontend_script_syntax(self):
         for path in ["admin.html","index.html"]:
             doc=self.parse(path)
@@ -52,10 +53,11 @@ class FrontendContract(unittest.TestCase):
                     p=Path(tmp)/f"inline_{i}.js"
                     p.write_text(js,encoding="utf-8")
                     subprocess.run(["node","--check",str(p)],check=True,capture_output=True,text=True)
-        subprocess.run(["node","--check",str(ROOT/"hq-experience.js")],check=True,capture_output=True,text=True)
+        for path in ["hq-experience.js","site-design.js"]:
+            subprocess.run(["node","--check",str(ROOT/path)],check=True,capture_output=True,text=True)
     def test_admin_ui_module_routing(self):
         s=(ROOT/"hq-experience.js").read_text()
-        for route in ["showQuotes","showOrders","showContacts","showProducts","showTest","showAudit","system","artwork","vendors","production","payments","marketing","security"]:
+        for route in ["showQuotes","showOrders","showContacts","showProducts","showTest","showAudit","showDesignStudio","showRoadmap","system","artwork","vendors","production","payments","marketing","security"]:
             self.assertIn(route,s)
         self.assertIn("dashboard.insertBefore(menu,nav)",s,"Mobile menu must stay in hidden auth workspace")
     def test_no_payment_claim(self):
