@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light"><meta name="robots" content="noindex,nofollow">
+<meta name="description" content="24hrsprinting interactive promotional product design studio, staging prototype">
+<title>Design Studio | 24hrsprinting — Staging</title>
+<link rel="stylesheet" href="./studio.css">
+<script defer src="./config.js"></script>
+<script defer src="./studio.js"></script>
+</head>
+<body>
+<div class="preview-strip"><span class="pulse"></span> STAGING DESIGN STUDIO <span class="strip-break">/</span> Real-time customer prototype <span class="strip-note">Illustrative previews · No production or payments</span></div>
+<header class="studio-top">
+ <a class="wordmark" href="./index.html"><span class="mark">24</span><span><b>hrsprinting</b><small>DESIGN STUDIO</small></span></a>
+ <span class="crumb">CREATE <span>/</span> CUSTOMIZE <span>/</span> PREVIEW</span>
+ <nav class="top-actions"><a href="./index.html">← Storefront</a><a href="./admin.html">Business HQ ↗</a></nav>
+</header>
+<div class="studio-layout">
+ <aside class="product-rail" aria-label="Choose a product">
+  <div class="rail-head"><span class="eyebrow">01 / THE PRODUCT</span><h2>Choose your canvas.</h2><p>Eight products. One connected design experience.</p></div>
+  <div id="productList" class="product-list" role="list"></div>
+  <div class="rail-bottom"><span class="status-dot"></span><div><strong>Staging catalogue</strong><small>Synced to test API · No live orders</small></div></div>
+ </aside>
+ <main class="work-area">
+  <div class="work-heading"><div><span id="productCategory" class="eyebrow">PRODUCT PERSONALIZATION</span><h1 id="productName">Create something worth keeping.</h1><p id="productSub">Choose a product and make it yours in real time.</p></div><div class="view-toggle" role="group" aria-label="Preview side"><button id="viewFront" class="selected" type="button" data-view="front">Front</button><button id="viewBack" type="button" data-view="back">Back</button></div></div>
+  <section class="stage-panel" aria-label="Live product prototype">
+   <div class="stage-top"><span><span class="stage-live"></span> LIVE VISUALIZATION <span class="stage-num">/</span> <span id="materialLabel">CUSTOM PRODUCT</span></span><div><label class="guide-control"><input type="checkbox" id="guideToggle"> Print area</label><button id="resetPosition" type="button" class="minimal-btn" title="Reset artwork position">↺ Reset position</button></div></div>
+   <div class="preview-surface" id="previewSurface"><div class="canvas-backdrop"></div><div id="previewMount" role="img" aria-label="Real-time illustrated mockup of customized promotional product"></div><div class="stage-float tl"><span class="live-chip">● REAL-TIME PREVIEW</span></div><div class="stage-float br"><span id="dragTip">Drag artwork on the product to reposition</span></div></div>
+   <div class="stage-bottom"><span><span class="round-dot"></span> Screen rendering only; colors and materials may vary</span><span id="printAreaCaption">Indicative placement · Supplier template required</span></div>
+  </section>
+  <div class="below-stage">
+   <div class="detail-card"><div><span class="eyebrow">REFERENCE PHOTOGRAPHY</span><h3>Compare the material</h3><p>Photographic catalog reference, not a logo-composited production photograph.</p></div><img id="referenceImg" loading="lazy" alt="Product reference photo" referrerpolicy="no-referrer"></div>
+   <div class="detail-card process"><span class="eyebrow">02 / FROM IDEA TO ORDER</span><h3>Your concept, reviewed by humans.</h3><p>Design your look → save a visual concept → request a free digital proof → our team checks fit, imprint, artwork and pricing before production.</p><a href="./index.html#how">How our proof process works ↗</a></div>
+  </div>
+ </main>
+ <aside class="editor-rail" aria-label="Product design controls">
+  <div class="editor-head"><div><span class="eyebrow">02 / THE DETAILS</span><h2>Make it yours.</h2></div><span class="step-indicator">LIVE EDITOR</span></div>
+  <div class="editor-tabs" role="tablist"><button type="button" role="tab" data-tab="art" aria-selected="true" class="on">Artwork</button><button type="button" role="tab" data-tab="product" aria-selected="false">Product</button><button type="button" role="tab" data-tab="details" aria-selected="false">Details</button></div>
+  <section id="panelArt" class="editor-panel active" role="tabpanel">
+   <div class="field-group"><label for="uploadLogo" class="field-label">YOUR LOGO OR ARTWORK</label><label class="upload-well" for="uploadLogo"><span class="upload-glyph">↥</span><strong id="uploadTitle">Drop in your logo</strong><small>PNG, JPG or WebP · maximum 5 MB · stays in your browser</small><span class="upload-pill">Choose image</span></label><input type="file" id="uploadLogo" accept="image/png,image/jpeg,image/webp" hidden><button type="button" id="removeLogo" class="text-action" hidden>Remove uploaded logo ×</button></div>
+   <div class="separator"><span>OR ADD YOUR MESSAGE</span></div>
+   <div class="field-group"><label class="field-label" for="designText">CUSTOM TEXT</label><input id="designText" type="text" maxlength="65" placeholder="Your brand or event" value="YOUR BRAND"><div class="two-fields"><div><label class="field-label" for="fontSelect">TYPEFACE</label><select id="fontSelect"><option value="bold">Bold sans</option><option value="clean">Clean modern</option><option value="serif">Editorial serif</option><option value="mono">Technical mono</option></select></div><div><label class="field-label" for="inkColor">ARTWORK COLOR</label><div class="ink-entry"><input id="inkColor" type="color" value="#ffffff"><span id="inkHex">#FFFFFF</span></div></div></div></div>
+   <div class="field-group"><div class="label-row"><label class="field-label" for="scaleRange">ARTWORK SIZE</label><output id="scaleValue">100%</output></div><input id="scaleRange" type="range" min="35" max="175" step="5" value="100"><div class="label-row"><label class="field-label" for="rotateRange">ROTATION</label><output id="rotateValue">0°</output></div><input id="rotateRange" type="range" min="-35" max="35" step="1" value="0"><div class="two-fields"><div><label class="field-label" for="horizontalRange">MOVE HORIZONTALLY</label><input id="horizontalRange" type="range" min="-100" max="100" step="1" value="0"></div><div><label class="field-label" for="verticalRange">MOVE VERTICALLY</label><input id="verticalRange" type="range" min="-100" max="100" step="1" value="0"></div></div></div>
+  </section>
+  <section id="panelProduct" class="editor-panel" role="tabpanel" hidden>
+   <div class="field-group"><span class="field-label">PRODUCT COLOR</span><div id="colorSwatches" class="swatches" role="group" aria-label="Choose product color"></div><span id="chosenColor" class="hint">Selected: Navy</span></div>
+   <div class="field-group"><label class="field-label" for="methodSelect">DECORATION TECHNIQUE</label><select id="methodSelect"></select><p id="methodNote" class="hint"></p></div>
+   <div class="field-group"><label class="field-label" for="optionSelect">PRODUCT STYLE</label><select id="optionSelect"></select></div>
+   <div class="field-group"><span class="field-label">PROTOTYPE OPTIONS</span><label class="checkbox-line"><input id="repeatCheck" type="checkbox"> Repeat artwork along imprint</label><p class="hint">For patterned lanyards and all-over applications, the supplier will confirm the repeat and seam alignment.</p></div>
+   <div class="field-group"><span class="field-label">PRODUCT-SPECIFIC PRODUCTION NOTES</span><ul id="productGuidance" class="guidance"></ul></div>
+  </section>
+  <section id="panelDetails" class="editor-panel" role="tabpanel" hidden>
+   <div class="field-group"><label class="field-label" for="quantityInput">ESTIMATED ORDER QUANTITY</label><input type="number" id="quantityInput" min="1" max="200000" value="100"><p id="qtyHint" class="hint">Minimum quantity varies by product.</p></div>
+   <div class="field-group"><span class="field-label">DESIGN SUMMARY</span><dl class="summary"><div><dt>Product</dt><dd id="summaryProduct">—</dd></div><div><dt>Finish</dt><dd id="summaryMethod">—</dd></div><div><dt>Quantity</dt><dd id="summaryQuantity">—</dd></div><div><dt>Starting estimate</dt><dd id="summaryPrice">—</dd></div></dl><p class="hint">Estimates are illustrative, exclude artwork-specific charges and shipping, and are not checkout prices.</p></div>
+   <div class="field-group"><p class="privacy-notice">Your artwork remains local in this editor. Download your concept before submitting a request; the quote form does not upload the artwork file.</p></div>
+  </section>
+  <div class="editor-footer"><div class="undo-row"><button id="undoBtn" type="button" title="Undo last change">↶ Undo</button><button id="redoBtn" type="button" title="Redo last change">↷ Redo</button><button id="startOver" type="button">Start fresh</button></div><button id="downloadBtn" class="action-primary" type="button"><span>↓</span> Download visual mockup</button><button id="saveBtn" class="action-secondary" type="button">Save draft in this browser</button><button id="proofBtn" class="action-outline" type="button">Request a free digital proof →</button><p class="microcopy">Prototype only · Exact print area and approval follow supplier review</p></div>
+ </aside>
+</div>
+<dialog id="proofDialog"><form id="proofForm" class="proof-modal"><div class="modal-top"><span class="eyebrow">NEXT STEP / FREE DIGITAL PROOF</span><button id="closeDialog" type="button" aria-label="Close">×</button></div><h2>Make this concept real.</h2><p>Share your contact details and product choices. We’ll send a quote request for human review. Downloaded artwork is not automatically uploaded.</p><label for="buyerName">Your name</label><input id="buyerName" name="name" required minlength="2" maxlength="100"><label for="buyerEmail">Work email</label><input id="buyerEmail" name="email" type="email" required><label for="buyerCompany">Company (optional)</label><input id="buyerCompany" name="company" maxlength="140"><label for="buyerNotes">Notes (optional)</label><textarea id="buyerNotes" name="notes" maxlength="500" rows="3" placeholder="Event date, logo notes, special requests..."></textarea><p id="proofStatus" role="status"></p><div class="modal-actions"><button type="button" id="cancelDialog" class="action-secondary">Cancel</button><button type="submit" class="action-primary" id="submitProof">Submit staging test request</button></div><small>This staging environment is for testing only. Do not enter real customer data.</small></form></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
