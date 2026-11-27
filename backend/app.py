@@ -735,3 +735,9 @@ def order_status(reference:str,payload:StatusInput,user=Depends(auth)):
 # Register safe, allow-listed AI page design drafts, publishing and rollback.
 from cms_brain import register_cms_brain
 register_cms_brain(app,engine,DB_SCHEMA,auth,allowed,audit,limit)
+
+# Staging-only customer and Business HQ visual preview, bound to this staging API.
+# Production does not have this route; its frontend and data remain separate.
+if APP_ENV == "staging":
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/preview", StaticFiles(directory="/app/preview", html=True), name="staging_preview")
