@@ -104,6 +104,11 @@ class LoginInput(BaseModel):
 class StatusInput(BaseModel):
     status: str
 
+class ProductUpdateInput(BaseModel):
+    name: str=Field(min_length=3,max_length=160)
+    minimum: int=Field(ge=1,le=200000)
+    unit_cents: int=Field(ge=1,le=10000000)
+
 def contact_id(con,payload):
     email=str(payload.email).strip().lower()
     row=con.execute(select(contacts.c.id).where(contacts.c.email==email)).first()
@@ -123,6 +128,17 @@ def list_products():
     with engine.connect() as con:
         found=con.execute(select(products).where(products.c.active==True)).mappings().all()
     return {"products":[{"id":x["id"],"name":x["name"],"category":x["category"],"minimum":x["minimum"],"estimate_unit_usd":f'{x["unit_cents"]/100:.2f}',"pricing_note":"Illustrative only"} for x in found]}
+
+@app.patch("/api/v1/admin/products/{product_id}")
+def update_product(product_id:str,payload:ProductUpdateInput,user=Depends(auth)):
+    allowed(user,{"admin"})
+    with engine.begin() as con:
+        exists=con.execute(select(products.c.id).where(products.c.id==product_id)).first()
+        if not exists: raise HTTPException(404,"Product not found")
+        con.execute(products.update().where(products.c.id==product_id).values(
+            name=payload.name.strip(),minimum=payload.minimum,unit_cents=payload.unit_cents))
+        con.execute(audit.insert().values(actor=user["email"],action="product_update",reference=product_id))
+    return {"id":product_id,"name":payload.name.strip(),"minimum":payload.minimum,"estimate_unit_usd":f"{payload.unit_cents/100:.2f}","pricing_note":"Illustrative only"}
 
 @app.post("/api/v1/quotes",status_code=201)
 def create_quote(payload:QuoteInput,request:Request):
